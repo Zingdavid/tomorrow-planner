@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2e5e4e">
+<meta name="description" content="Plan tomorrow on your daily rhythm: tasks on each time block, a Big Three, deadlines and night examen.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>Tomorrow Planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+html, body { margin: 0; }
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+[hidden] { display: none !important; }
+
+/* Layout: a day sheet. Left = the day's rhythm as a timeline with tasks hung on each block; right = intention, deadlines, examen. Stacks to one column on phones. */
+:root {
+  --bg: #f3f5f2;
+  --sheet: #ffffff;
+  --ink: #17231e;
+  --muted: #5d6b64;
+  --line: #d9e0db;
+  --accent: #2e5e4e;
+  --accent-soft: #e2ece7;
+  --class: #b5462f;
+  --class-soft: #f7e6e1;
+  --star: #b7862b;
+  --s-opp: #2f6db5; --s-paper: #2e5e4e; --s-teach: #b5462f; --s-cons: #7a5aa6; --s-fam: #c07a1f; --s-self: #4f7f8a;
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #111815; --sheet: #18211d; --ink: #e6ede9; --muted: #9aaba2; --line: #2b3832;
+  --accent: #7cc0a6; --accent-soft: #20332b; --class: #ec8a73; --class-soft: #3a231d; --star: #e0b45a;
+  --s-opp: #7fb0ec; --s-paper: #7cc0a6; --s-teach: #ec8a73; --s-cons: #b79be0; --s-fam: #e4a659; --s-self: #86bcc7;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #111815; --sheet: #18211d; --ink: #e6ede9; --muted: #9aaba2; --line: #2b3832;
+  --accent: #7cc0a6; --accent-soft: #20332b; --class: #ec8a73; --class-soft: #3a231d; --star: #e0b45a;
+  --s-opp: #7fb0ec; --s-paper: #7cc0a6; --s-teach: #ec8a73; --s-cons: #b79be0; --s-fam: #e4a659; --s-self: #86bcc7;
+  color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 64px; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Header */
+.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 20px; margin-bottom: 18px; }
+.eyebrow { font-family: var(--f-mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--f-display); font-weight: 700; font-size: clamp(28px, 6vw, 42px); line-height: 1.05; margin: 4px 0 0; text-wrap: balance; letter-spacing: -0.01em; }
+.nav { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.chip { border: 1px solid var(--line); background: var(--sheet); border-radius: 999px; padding: 6px 12px; font-size: 13px; }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--sheet); }
+.icon-btn { border: 1px solid var(--line); background: var(--sheet); border-radius: 999px; width: 34px; height: 34px; display: grid; place-items: center; font-size: 16px; }
+.status { font-family: var(--f-mono); font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.status[data-s="saved"]::before { background: var(--accent); }
+.status[data-s="saving"]::before { background: var(--star); }
+.status[data-s="local"]::before { background: var(--class); }
+
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
+@media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--sheet); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; min-width: 0; }
+.card h2 { font-family: var(--f-display); font-weight: 500; font-size: 17px; margin: 0 0 10px; }
+.side { display: grid; gap: 14px; }
+
+/* Add form */
+.add { display: grid; gap: 10px; margin-bottom: 14px; }
+.add-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.add input[type=text] { flex: 1 1 260px; min-width: 0; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 10px 12px; }
+.add select { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 8px 10px; flex: 1 1 140px; min-width: 0; }
+.star-toggle { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 8px 12px; color: var(--muted); }
+.star-toggle[aria-pressed="true"] { color: var(--star); border-color: var(--star); }
+.btn-primary { background: var(--accent); color: var(--sheet); border: 0; border-radius: 8px; padding: 9px 18px; font-weight: 700; }
+.suggest { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.suggest .lbl { font-size: 12px; color: var(--muted); margin-right: 2px; }
+.suggest button { border: 1px dashed var(--line); background: transparent; border-radius: 999px; padding: 4px 10px; font-size: 12.5px; color: var(--muted); }
+.suggest button:hover { color: var(--ink); border-color: var(--accent); }
+
+/* Summary */
+.summary { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; padding: 12px 14px; border-radius: var(--r); background: var(--accent-soft); margin-bottom: 14px; }
+.ring { width: 46px; height: 46px; flex: none; }
+.ring circle { fill: none; stroke-width: 5; }
+.ring .track { stroke: var(--line); }
+.ring .val { stroke: var(--accent); stroke-linecap: round; transform: rotate(-90deg); transform-origin: center; transition: stroke-dashoffset .3s; }
+.summary .big { font-family: var(--f-display); font-size: 18px; font-weight: 700; }
+.summary .sub { font-size: 13px; color: var(--muted); }
+.bigthree { flex: 1 1 260px; min-width: 0; }
+.bigthree ol { margin: 4px 0 0; padding-left: 20px; font-size: 14px; }
+.bigthree li.done { text-decoration: line-through; color: var(--muted); }
+.bigthree .empty { font-size: 13px; color: var(--muted); }
+
+/* Timeline */
+.tl { display: grid; gap: 2px; }
+.blk { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.blk:first-child { border-top: 0; }
+.time { font-family: var(--f-mono); font-size: 12px; color: var(--muted); padding-top: 2px; font-variant-numeric: tabular-nums; }
+.blk-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; }
+.blk-label { font-weight: 700; }
+.blk[data-kind="rest"] .blk-label, .blk[data-kind="prayer"] .blk-label, .blk[data-kind="family"] .blk-label { font-weight: 400; color: var(--muted); }
+.tag { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.blk[data-kind="class"] .tag { background: var(--class-soft); color: var(--class); border-color: transparent; }
+.blk[data-kind="class"] .blk-label { color: var(--class); }
+.blk[data-kind="work"] .tag { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.tasks { display: grid; gap: 4px; margin-top: 6px; }
+.task { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 5px 6px 5px 4px; border-radius: 8px; }
+.task:hover { background: var(--bg); }
+.task input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
+.task .txt { border: 0; background: transparent; padding: 3px 4px; border-radius: 6px; width: 100%; min-width: 0; }
+.task .txt:focus { background: var(--bg); outline: 1px solid var(--line); }
+.task.done .txt { text-decoration: line-through; color: var(--muted); }
+.task .meta { display: flex; align-items: center; gap: 4px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: none; display: inline-block; }
+.task .meta select { border: 1px solid transparent; background: transparent; font-size: 12px; color: var(--muted); padding: 2px; max-width: 120px; }
+.task .meta select:hover, .task .meta select:focus { border-color: var(--line); }
+.mini { border: 0; background: transparent; color: var(--muted); width: 28px; height: 28px; border-radius: 6px; font-size: 15px; }
+.mini:hover { background: var(--line); color: var(--ink); }
+.mini.on { color: var(--star); }
+.carried { font-family: var(--f-mono); font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+@media (max-width: 520px) {
+  .blk { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .task { grid-template-columns: 22px minmax(0, 1fr); }
+  .task .meta { grid-column: 2; justify-content: flex-start; }
+}
+
+/* Side panel */
+textarea { width: 100%; min-height: 84px; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 10px; resize: vertical; }
+.hint { font-size: 12.5px; color: var(--muted); margin: 0 0 8px; }
+.dl { display: grid; gap: 8px; }
+.dl-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: baseline; }
+.dl-row .n { font-size: 14px; }
+.dl-row .d { font-size: 12px; color: var(--muted); }
+.dl-row .left { font-family: var(--f-mono); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.dl-row .left.soon { color: var(--class); }
+.btn-ghost { width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 9px 12px; text-align: left; }
+.btn-ghost:hover { border-color: var(--accent); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12.5px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+
+.toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 14px; border-radius: 10px; font-size: 14px; display: flex; gap: 12px; align-items: center; max-width: calc(100% - 32px); z-index: 10; }
+.toast button { background: transparent; border: 0; color: var(--bg); text-decoration: underline; font-weight: 700; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+.dl-act { display: flex; align-items: center; gap: 2px; }
+.dl-form { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.dl-form input { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.dl-form input[type=text] { flex: 1 1 140px; }
+.dl-form input[type=date] { flex: 1 1 130px; }
+.dl-form .btn-primary { padding: 8px 14px; }
+.backup { display: grid; gap: 8px; }
+html, body { min-height: 100%; }
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow" id="eyebrow">Planning for</div>
+      <h1 id="dateTitle">Tomorrow</h1>
+    </div>
+    <div style="display:grid; gap:8px; justify-items:end">
+      <nav class="nav" aria-label="Choose day">
+        <button class="icon-btn" id="prev" aria-label="Previous day">‹</button>
+        <button class="chip" id="goToday" aria-pressed="false">Today</button>
+        <button class="chip" id="goTomorrow" aria-pressed="true">Tomorrow</button>
+        <button class="icon-btn" id="next" aria-label="Next day">›</button>
+      </nav>
+      <div class="status" id="status" data-s="saved">Saved on this device</div>
+    </div>
+  </header>
+
+  <div class="grid">
+    <main class="card">
+      <form class="add" id="addForm" autocomplete="off">
+        <div class="add-row">
+          <input type="text" id="newText" placeholder="Add a task, e.g. Draft Göttingen research focus" aria-label="Task">
+        </div>
+        <div class="add-row">
+          <select id="newBlock" aria-label="Time block"></select>
+          <select id="newStream" aria-label="Work stream"></select>
+          <button type="button" class="star-toggle" id="newStar" aria-pressed="false" title="Mark as one of the Big Three">★ Big three</button>
+          <button type="submit" class="btn-primary">Add</button>
+        </div>
+        <div class="suggest" id="suggest"></div>
+      </form>
+
+      <section class="summary" aria-label="Progress">
+        <svg class="ring" viewBox="0 0 46 46" aria-hidden="true"><circle class="track" cx="23" cy="23" r="19"/><circle class="val" id="ringVal" cx="23" cy="23" r="19" stroke-dasharray="119.4" stroke-dashoffset="119.4"/></svg>
+        <div>
+          <div class="big" id="doneCount">0 of 0 done</div>
+          <div class="sub" id="dayKind">Work day</div>
+        </div>
+        <div class="bigthree">
+          <div class="eyebrow">Big three</div>
+          <div id="bigThree"></div>
+        </div>
+      </section>
+
+      <div class="tl" id="timeline"></div>
+    </main>
+
+    <aside class="side">
+      <section class="card">
+        <h2>Intention</h2>
+        <p class="hint">One sentence to offer the day.</p>
+        <textarea id="intention" placeholder="e.g. Do the hard work first, and be fully present at pickup." style="min-height:64px"></textarea>
+      </section>
+      <section class="card">
+        <h2>Deadlines</h2>
+        <div class="dl" id="deadlines"></div>
+        <form class="dl-form" id="dlForm" autocomplete="off">
+          <input type="text" id="dlName" placeholder="e.g. PhD application" aria-label="Deadline name">
+          <input type="date" id="dlDate" aria-label="Closing date">
+          <button type="submit" class="btn-primary">Add</button>
+        </form>
+      </section>
+      <section class="card">
+        <h2>Carry forward</h2>
+        <p class="hint" id="carryHint">Bring unfinished tasks from the previous day into this one.</p>
+        <button class="btn-ghost" id="carryBtn">Bring unfinished tasks forward</button>
+      </section>
+      <section class="card">
+        <h2>Night examen</h2>
+        <p class="hint">Thanks · honest review · forgiveness · entrust tomorrow.</p>
+        <textarea id="examen" placeholder="What am I grateful for today?"></textarea>
+      </section>
+      <section class="card">
+        <h2>Backup and move</h2>
+        <p class="hint">Plans are kept on this device. Save a backup file, then open it on your other device to merge.</p>
+        <div class="backup">
+          <button class="btn-ghost" id="exportBtn">Save backup file</button>
+          <button class="btn-ghost" id="importBtn">Open backup file</button>
+          <input type="file" id="importFile" accept="application/json,.json" hidden>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Streams</h2>
+        <div class="legend" id="legend"></div>
+      </section>
+    </aside>
+  </div>
+</div>
+<div class="toast" id="toast" hidden><span id="toastMsg"></span><button id="toastAct" hidden>Undo</button></div>
+
+<script>
+(() => {
+  const STREAMS = [
+    { id: "opp", name: "Applications", v: "--s-opp" },
+    { id: "paper", name: "Papers", v: "--s-paper" },
+    { id: "teach", name: "Teaching", v: "--s-teach" },
+    { id: "cons", name: "Consultancy", v: "--s-cons" },
+    { id: "fam", name: "Family", v: "--s-fam" },
+    { id: "self", name: "Prayer & self", v: "--s-self" },
+  ];
+  let DEADLINES = [];
+
+  // The daily rhythm from the Rule of Life and Work Priorities
+  const B = (id, start, end, label, kind, extra) => ({ id, start, end, label, kind, ...(extra || {}) });
+  const MORNING = [
+    B("a0430", "4:30", "5:00", "Morning prayer", "prayer"),
+    B("a0500", "5:00", "6:15", "Exercise · manual work · wash", "rest"),
+    B("a0615", "6:15", "7:00", "Family breakfast", "family"),
+  ];
+  const PICKUP = B("a1200", "12:00", "13:00", "School pickup & lunch", "family");
+  const EVENING = [
+    B("a1630", "16:30", "17:00", "Shutdown ritual", "rest"),
+    B("a1700", "17:00", "19:45", "Family, community, family meal", "family"),
+    B("a1945", "19:45", "21:15", "Free time", "rest"),
+    B("a2115", "21:15", "21:30", "Night examen", "prayer"),
+  ];
+  const WEEK = {
+    1: { kind: "Work day · class 9:30", blocks: [
+      B("w0700", "7:00", "9:00", "Paper A", "work", { stream: "paper" }),
+      B("c0930", "9:30", "10:30", "Class", "class", { stream: "teach" }),
+      B("w1045", "10:45", "12:00", "Paper A (continued)", "work", { stream: "paper" }),
+      PICKUP,
+      B("w1300", "13:00", "13:30", "Email, students, admin", "work", { stream: "teach" }),
+      B("w1330", "13:30", "16:30", "Consultancy", "work", { stream: "cons" }) ] },
+    2: { kind: "Work day · class 9:30", blocks: [
+      B("w0700", "7:00", "9:00", "Applications", "work", { stream: "opp" }),
+      B("c0930", "9:30", "10:30", "Class", "class", { stream: "teach" }),
+      B("w1045", "10:45", "12:00", "Applications (continued)", "work", { stream: "opp" }),
+      PICKUP,
+      B("w1300", "13:00", "16:30", "Consultancy", "work", { stream: "cons" }) ] },
+    3: { kind: "Teaching day · classes 10:30 and 14:30", blocks: [
+      B("w0700", "7:00", "10:00", "Paper A (full deep block)", "work", { stream: "paper" }),
+      B("c1030", "10:30", "11:30", "Class", "class", { stream: "teach" }),
+      B("w1130", "11:30", "12:00", "Students, quick admin", "work", { stream: "teach" }),
+      PICKUP,
+      B("w1300", "13:00", "14:00", "Office hours, students, meetings", "work", { stream: "teach" }),
+      B("w1400", "14:00", "14:30", "Prep for afternoon class", "work", { stream: "teach" }),
+      B("c1430", "14:30", "16:30", "Class", "class", { stream: "teach" }) ] },
+    4: { kind: "Work day · no classes", blocks: [
+      B("w0700", "7:00", "10:00", "Applications", "work", { stream: "opp" }),
+      B("w1015", "10:15", "12:00", "Consultancy", "work", { stream: "cons" }),
+      PICKUP,
+      B("w1300", "13:00", "14:00", "Opportunity scan + outreach", "work", { stream: "opp" }),
+      B("w1400", "14:00", "16:30", "Lecture prep, marking", "work", { stream: "teach" }) ] },
+    5: { kind: "Work day · no classes", blocks: [
+      B("w0700", "7:00", "10:00", "Paper B", "work", { stream: "paper" }),
+      B("w1015", "10:15", "12:00", "Paper B or consultancy", "work", { stream: "paper" }),
+      PICKUP,
+      B("w1300", "13:00", "16:00", "Marking, admin, consultancy wrap-up", "work", { stream: "cons" }),
+      B("w1600", "16:00", "16:30", "Weekly review", "work", { stream: "self" }) ] },
+    6: { kind: "Saturday · optional catch-up, max 3 hours", blocks: [
+      B("w0700", "7:00", "10:00", "Optional catch-up", "work"),
+      B("a1000", "10:00", "16:30", "Family and community", "family", { stream: "fam" }) ] },
+    0: { kind: "Sabbath · closed for work", blocks: [
+      B("a0800", "8:00", "12:00", "Worship and rest", "prayer", { stream: "self" }),
+      B("a1200s", "12:00", "16:30", "Feast, visit, rest", "family", { stream: "fam" }) ] },
+  };
+  const SUGGEST = {
+    1: [["Paper A: next section", "w0700", "paper"], ["Prepare 9:30 class", "c0930", "teach"], ["Consultancy deliverable", "w1330", "cons"]],
+    2: [["Application: tailor research statement", "w0700", "opp"], ["Prepare 9:30 class", "c0930", "teach"], ["Consultancy deliverable", "w1300", "cons"]],
+    3: [["Paper A: next section", "w0700", "paper"], ["Prepare 10:30 class", "w1130", "teach"], ["Prepare 14:30 class", "w1400", "teach"]],
+    4: [["Application: draft and send", "w0700", "opp"], ["Scan alerts, score 2 finds", "w1300", "opp"], ["Send 1 supervisor email", "w1300", "opp"]],
+    5: [["Paper B: next section", "w0700", "paper"], ["Mark scripts", "w1300", "teach"], ["Weekly review", "w1600", "self"]],
+    6: [["Catch up on one task", "w0700", "paper"], ["Family outing", "a1000", "fam"]],
+    0: [["Call or visit someone", "a1200s", "fam"]],
+  };
+  const blocksFor = (d) => { const w = WEEK[d.getDay()]; return [...MORNING, ...w.blocks, ...EVENING]; };
+
+  // ---------- dates ----------
+  const pad = (n) => String(n).padStart(2, "0");
+  const keyOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const fromKey = (k) => { const [y, m, d] = k.split("-").map(Number); return new Date(y, m - 1, d); };
+  const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+  const today = () => { const t = new Date(); return new Date(t.getFullYear(), t.getMonth(), t.getDate()); };
+  const fmt = (d) => d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+
+  // ---------- state ----------
+  let viewDate = addDays(today(), 1);
+  let state = blank();
+  let saveTimer = null;
+  let draftStar = false;
+  function blank() { return { tasks: [], intention: "", examen: "" }; }
+  const newId = () => "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+  // ---------- storage (this device) ----------
+  const LS = "planner:";
+  const lsGet = (k) => { try { const v = localStorage.getItem(LS + k); return v ? JSON.parse(v) : null; } catch { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(LS + k, JSON.stringify(v)); return true; } catch { return false; } };
+  const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+  function setStatus(s, text) { const e = $("status"); e.dataset.s = s; e.textContent = text; }
+
+  function normalize(data) {
+    const s = blank();
+    if (data && typeof data === "object") {
+      if (Array.isArray(data.tasks)) s.tasks = data.tasks.filter(t => t && typeof t.id === "string").map(t => ({
+        id: t.id, text: String(t.text || ""), block: String(t.block || "any"), stream: String(t.stream || "self"),
+        top: !!t.top, done: !!t.done, carried: !!t.carried, at: Number(t.at) || 0 }));
+      s.intention = String(data.intention || ""); s.examen = String(data.examen || "");
+      s.updatedAt = String(data.updatedAt || "");
+    }
+    return s;
+  }
+
+  function load() { state = normalize(lsGet(keyOf(viewDate))); render(); }
+
+  function writeNow() {
+    const k = keyOf(viewDate);
+    state.updatedAt = new Date().toISOString();
+    const ok = lsSet(k, { ...state, date: k });
+    setStatus(ok ? "saved" : "local", ok ? "Saved on this device" : "Couldn't save. Storage may be full.");
+  }
+  function save(delay = 300) {
+    clearTimeout(saveTimer);
+    setStatus("saving", "Saving…");
+    saveTimer = setTimeout(() => { saveTimer = null; writeNow(); }, delay);
+  }
+  function flush() { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; writeNow(); } }
+  window.addEventListener("pagehide", flush);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) flush(); else if (!isTyping()) load(); });
+
+  const isTyping = () => { const a = document.activeElement; return a && (a.tagName === "TEXTAREA" || (a.tagName === "INPUT" && a.type === "text")); };
+
+  // ---------- render ----------
+  const $ = (id) => document.getElementById(id);
+  const streamOf = (id) => STREAMS.find(s => s.id === id) || STREAMS[5];
+  const el = (tag, props = {}, kids = []) => { const e = document.createElement(tag); Object.assign(e, props); for (const k of kids) e.append(k); return e; };
+
+  function render() {
+    const d = viewDate, t = today();
+    const diff = Math.round((d - t) / 86400000);
+    $("eyebrow").textContent = diff === 1 ? "Planning for tomorrow" : diff === 0 ? "Today" : diff < 0 ? "Looking back" : "Planning ahead";
+    $("dateTitle").textContent = fmt(d);
+    $("goToday").setAttribute("aria-pressed", String(diff === 0));
+    $("goTomorrow").setAttribute("aria-pressed", String(diff === 1));
+    const blocks = blocksFor(d);
+    $("dayKind").textContent = WEEK[d.getDay()].kind;
+
+    // add form selects
+    const nb = $("newBlock"), keep = nb.value;
+    nb.replaceChildren(...blocks.map(b => el("option", { value: b.id, textContent: `${b.start} · ${b.label}` })), el("option", { value: "any", textContent: "Anytime" }));
+    const firstWork = blocks.find(b => b.kind === "work") || blocks[0];
+    if (!$("newStream").options.length) $("newStream").replaceChildren(...STREAMS.map(s => el("option", { value: s.id, textContent: s.name })));
+    nb.value = blocks.some(b => b.id === keep) ? keep : firstWork.id;
+    if (nb.value !== keep) { const bb = blocks.find(x => x.id === nb.value); if (bb && bb.stream) $("newStream").value = bb.stream; }
+
+    // suggestions
+    const sg = $("suggest"); sg.replaceChildren(el("span", { className: "lbl", textContent: "Suggestions:" }));
+    for (const [text, blk, stream] of SUGGEST[d.getDay()] || []) {
+      sg.append(el("button", { type: "button", textContent: "+ " + text, onclick: () => {
+        $("newText").value = text; $("newBlock").value = blk; $("newStream").value = stream; $("newText").focus();
+      } }));
+    }
+
+    // summary
+    const total = state.tasks.length, done = state.tasks.filter(x => x.done).length;
+    $("doneCount").textContent = total ? `${done} of ${total} done` : "No tasks yet";
+    $("ringVal").setAttribute("stroke-dashoffset", String(119.4 * (1 - (total ? done / total : 0))));
+    const tops = state.tasks.filter(x => x.top);
+    $("bigThree").replaceChildren(tops.length
+      ? el("ol", {}, tops.map(x => el("li", { className: x.done ? "done" : "", textContent: x.text || "(untitled)" })))
+      : el("div", { className: "empty", textContent: "Star up to three tasks that would make the day count." }));
+
+    // timeline
+    const tl = $("timeline"); tl.replaceChildren();
+    const groups = [...blocks, { id: "any", start: "", end: "", label: "Anytime", kind: "any" }];
+    const known = new Set(groups.map(g => g.id));
+    for (const g of groups) {
+      const items = state.tasks.filter(x => (known.has(x.block) ? x.block : "any") === g.id)
+        .sort((a, b) => (b.top - a.top) || (a.done - b.done) || (a.at - b.at));
+      if (g.kind === "any" && !items.length) continue;
+      const tagTxt = { class: "Class", work: g.stream ? streamOf(g.stream).name : "Work", prayer: "Prayer", family: "Family", rest: "Rest", any: "" }[g.kind];
+      const head = el("div", { className: "blk-head" }, [el("span", { className: "blk-label", textContent: g.label })]);
+      if (tagTxt) head.append(el("span", { className: "tag", textContent: tagTxt }));
+      const list = el("div", { className: "tasks" }, items.map(taskRow));
+      const row = el("div", { className: "blk" }, [
+        el("div", { className: "time", textContent: g.start ? `${g.start}–${g.end}` : "" }),
+        el("div", {}, [head, list]) ]);
+      row.dataset.kind = g.kind;
+      tl.append(row);
+    }
+
+    // side
+    if (document.activeElement !== $("intention")) $("intention").value = state.intention;
+    if (document.activeElement !== $("examen")) $("examen").value = state.examen;
+    $("carryHint").textContent = `Bring unfinished tasks from ${fmt(addDays(d, -1))} into this day.`;
+    renderDeadlines();
+  }
+
+  function taskRow(x) {
+    const s = streamOf(x.stream);
+    const cb = el("input", { type: "checkbox", checked: x.done, ariaLabel: "Done" });
+    cb.addEventListener("change", () => { x.done = cb.checked; render(); save(0); });
+    const txt = el("input", { type: "text", className: "txt", value: x.text, ariaLabel: "Task" });
+    txt.addEventListener("change", () => { x.text = txt.value.trim(); save(); });
+    txt.addEventListener("keydown", (e) => { if (e.key === "Enter") txt.blur(); });
+    const dot = el("span", { className: "dot", title: s.name }); dot.style.background = `var(${s.v})`;
+    const mv = el("select", { ariaLabel: "Move to block" });
+    const blocks = blocksFor(viewDate);
+    mv.append(...blocks.map(b => el("option", { value: b.id, textContent: `${b.start} ${b.label}` })), el("option", { value: "any", textContent: "Anytime" }));
+    mv.value = blocks.some(b => b.id === x.block) ? x.block : "any";
+    mv.addEventListener("change", () => { x.block = mv.value; render(); save(0); });
+    const star = el("button", { className: "mini" + (x.top ? " on" : ""), textContent: "★", title: x.top ? "Remove from Big three" : "Add to Big three", ariaLabel: "Big three" });
+    star.addEventListener("click", () => {
+      if (!x.top && state.tasks.filter(t => t.top).length >= 3) { toast("Big three is full. Unstar one first."); return; }
+      x.top = !x.top; render(); save(0);
+    });
+    const del = el("button", { className: "mini", textContent: "×", title: "Delete", ariaLabel: "Delete task" });
+    del.addEventListener("click", () => {
+      const i = state.tasks.indexOf(x); if (i < 0) return;
+      state.tasks.splice(i, 1); render(); save(0);
+      toast("Task deleted", () => { state.tasks.splice(Math.min(i, state.tasks.length), 0, x); render(); save(0); });
+    });
+    const meta = el("div", { className: "meta" }, [dot, mv, star, del]);
+    if (x.carried) meta.prepend(el("span", { className: "carried", textContent: "carried" }));
+    return el("div", { className: "task" + (x.done ? " done" : "") }, [cb, txt, meta]);
+  }
+
+  function renderDeadlines() {
+    const t = today();
+    if (!DEADLINES.length) { $("deadlines").replaceChildren(el("p", { className: "hint", textContent: "No deadlines yet. Add one below. The countdown targets 3 days before it closes." })); return; }
+    $("deadlines").replaceChildren(...DEADLINES.map(dl => {
+      const left = Math.round((fromKey(dl.internal) - t) / 86400000);
+      const txt = left > 1 ? `${left} days` : left === 1 ? "1 day" : left === 0 ? "Today" : "Passed";
+      return el("div", { className: "dl-row" }, [
+        el("div", {}, [el("div", { className: "n", textContent: dl.name }),
+          el("div", { className: "d", textContent: `Submit by ${fromKey(dl.internal).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · closes ${fromKey(dl.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` })]),
+        el("div", { className: "dl-act" }, [
+          el("span", { className: "left" + (left <= 7 ? " soon" : ""), textContent: txt }),
+          el("button", { className: "mini", textContent: "×", title: "Remove deadline", ariaLabel: "Remove deadline", onclick: () => {
+            const i = DEADLINES.indexOf(dl); DEADLINES.splice(i, 1); saveDeadlines(); renderDeadlines();
+            toast("Deadline removed", () => { DEADLINES.splice(i, 0, dl); saveDeadlines(); renderDeadlines(); }); } }) ]) ]);
+    }));
+  }
+
+  // ---------- toast ----------
+  let toastTimer;
+  function toast(msg, undo) {
+    $("toastMsg").textContent = msg;
+    const act = $("toastAct"); act.hidden = !undo; act.onclick = () => { $("toast").hidden = true; undo && undo(); };
+    $("toast").hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $("toast").hidden = true, 5000);
+  }
+
+  // ---------- events ----------
+  $("addForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = $("newText").value.trim(); if (!text) { $("newText").focus(); return; }
+    let top = draftStar;
+    if (top && state.tasks.filter(t => t.top).length >= 3) { top = false; toast("Big three is full, so this task was added without a star."); }
+    state.tasks.push({ id: newId(), text, block: $("newBlock").value, stream: $("newStream").value, top, done: false, carried: false, at: Date.now() });
+    $("newText").value = ""; draftStar = false; $("newStar").setAttribute("aria-pressed", "false");
+    render(); save(0); $("newText").focus();
+  });
+  $("newBlock").addEventListener("change", () => {
+    const b = blocksFor(viewDate).find(x => x.id === $("newBlock").value); if (b && b.stream) $("newStream").value = b.stream;
+  });
+  $("newStar").addEventListener("click", () => { draftStar = !draftStar; $("newStar").setAttribute("aria-pressed", String(draftStar)); });
+  $("intention").addEventListener("input", () => { state.intention = $("intention").value; save(800); });
+  $("examen").addEventListener("input", () => { state.examen = $("examen").value; save(800); });
+
+  function go(d) { flush(); viewDate = d; load(); }
+  $("prev").addEventListener("click", () => go(addDays(viewDate, -1)));
+  $("next").addEventListener("click", () => go(addDays(viewDate, 1)));
+  $("goToday").addEventListener("click", () => go(today()));
+  $("goTomorrow").addEventListener("click", () => go(addDays(today(), 1)));
+
+  $("carryBtn").addEventListener("click", async () => {
+    const pk = keyOf(addDays(viewDate, -1));
+    const prev = normalize(lsGet(pk));
+    const have = new Set(state.tasks.map(t => t.id));
+    const blocks = new Set(blocksFor(viewDate).map(b => b.id));
+    const moved = prev.tasks.filter(t => !t.done && !have.has(t.id)).map(t => ({ ...t, carried: true, top: false, block: blocks.has(t.block) ? t.block : "any", at: Date.now() }));
+    if (!moved.length) { toast("Nothing unfinished to bring forward."); return; }
+    state.tasks.push(...moved); render(); save(0);
+    toast(`Brought ${moved.length} task${moved.length > 1 ? "s" : ""} forward`);
+  });
+
+  // legend
+  $("legend").replaceChildren(...STREAMS.map(s => { const d = el("span", { className: "dot" }); d.style.background = `var(${s.v})`; return el("span", {}, [d, s.name]); }));
+
+  // ---------- deadlines ----------
+  function saveDeadlines() { lsSet("deadlines", DEADLINES); }
+  $("dlForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = $("dlName").value.trim(), date = $("dlDate").value;
+    if (!name || !DAY.test(date)) { toast("Add a name and a closing date."); return; }
+    const internal = keyOf(addDays(fromKey(date), -3));
+    DEADLINES.push({ id: newId(), name, date, internal });
+    DEADLINES.sort((a, b) => a.date.localeCompare(b.date));
+    saveDeadlines(); $("dlName").value = ""; $("dlDate").value = ""; renderDeadlines();
+  });
+
+  // ---------- backup: export / import ----------
+  function allData() {
+    const days = {};
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(LS) && DAY.test(k.slice(LS.length))) days[k.slice(LS.length)] = JSON.parse(localStorage.getItem(k));
+      }
+    } catch {}
+    return { app: "tomorrow-planner", version: 1, exportedAt: new Date().toISOString(), deadlines: DEADLINES, days };
+  }
+  $("exportBtn").addEventListener("click", () => {
+    flush();
+    const blob = new Blob([JSON.stringify(allData(), null, 1)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `planner-backup-${keyOf(today())}.json`;
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    toast("Backup saved to Downloads");
+  });
+  $("importBtn").addEventListener("click", () => $("importFile").click());
+  $("importFile").addEventListener("change", async () => {
+    const f = $("importFile").files[0]; $("importFile").value = "";
+    if (!f) return;
+    let data;
+    try { data = JSON.parse(await f.text()); } catch { toast("That file isn't a planner backup."); return; }
+    if (!data || data.app !== "tomorrow-planner" || typeof data.days !== "object") { toast("That file isn't a planner backup."); return; }
+    flush();
+    let n = 0;
+    for (const [k, inc] of Object.entries(data.days)) {
+      if (!DAY.test(k)) continue;
+      const mine = normalize(lsGet(k)), theirs = normalize(inc);
+      const newer = theirs.updatedAt > mine.updatedAt;
+      const byId = new Map(mine.tasks.map(t => [t.id, t]));
+      for (const t of theirs.tasks) { if (!byId.has(t.id) || newer) byId.set(t.id, t); }
+      const pick = (a, b) => newer ? (b || a) : (a || b);
+      lsSet(k, { tasks: [...byId.values()], intention: pick(mine.intention, theirs.intention), examen: pick(mine.examen, theirs.examen),
+        updatedAt: newer ? theirs.updatedAt : mine.updatedAt, date: k });
+      n++;
+    }
+    if (Array.isArray(data.deadlines)) {
+      const ids = new Set(DEADLINES.map(d => d.id));
+      for (const d of data.deadlines) if (d && d.id && !ids.has(d.id) && DAY.test(d.date)) DEADLINES.push(d);
+      DEADLINES.sort((a, b) => a.date.localeCompare(b.date)); saveDeadlines();
+    }
+    load();
+    toast(`Merged ${n} day${n === 1 ? "" : "s"} from the backup`);
+  });
+
+  // ---------- boot ----------
+  { const d = lsGet("deadlines"); DEADLINES = Array.isArray(d) ? d.filter(x => x && DAY.test(x.date)) : []; }
+  load();
+  setStatus("saved", "Saved on this device");
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+})();
+</script>
+</body>
+</html>
