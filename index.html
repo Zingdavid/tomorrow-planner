@@ -156,6 +156,10 @@ textarea { width: 100%; min-height: 84px; border: 1px solid var(--line); backgro
 .dl-form input[type=date] { flex: 1 1 130px; }
 .dl-form .btn-primary { padding: 8px 14px; }
 .backup { display: grid; gap: 8px; }
+.steps { margin: 0 0 4px; padding-left: 18px; font-size: 13.5px; display: grid; gap: 4px; }
+.steps a { color: var(--accent); font-weight: 700; }
+.dl-form input[type=password] { flex: 1 1 160px; }
+#syncInfo[data-bad="1"] { color: var(--class); }
 html, body { min-height: 100%; }
 </style>
 </head>
@@ -235,8 +239,29 @@ html, body { min-height: 100%; }
         <textarea id="examen" placeholder="What am I grateful for today?"></textarea>
       </section>
       <section class="card">
+        <h2>Sync</h2>
+        <div id="syncOff">
+          <p class="hint">Keep phone and laptop in step through a secret note in your GitHub account. Do this once on each device.</p>
+          <ol class="steps">
+            <li><a href="https://github.com/settings/tokens/new?scopes=gist&amp;description=Tomorrow%20Planner%20sync" target="_blank" rel="noopener">Create a GitHub token</a> (only "gist" ticked), then copy it.</li>
+            <li>Paste it here and tap Connect.</li>
+          </ol>
+          <form class="dl-form" id="syncForm" autocomplete="off">
+            <input type="password" id="syncToken" placeholder="ghp_…" aria-label="GitHub token" autocomplete="off">
+            <button type="submit" class="btn-primary" id="syncConnect">Connect</button>
+          </form>
+        </div>
+        <div id="syncOn" hidden>
+          <p class="hint" id="syncInfo">Connected.</p>
+          <div class="backup">
+            <button class="btn-ghost" id="syncBtn">Sync now</button>
+            <button class="btn-ghost" id="syncOffBtn">Turn off sync on this device</button>
+          </div>
+        </div>
+      </section>
+      <section class="card">
         <h2>Backup and move</h2>
-        <p class="hint">Plans are kept on this device. Save a backup file, then open it on your other device to merge.</p>
+        <p class="hint">Save a copy of all your plans as a file, or merge one in.</p>
         <div class="backup">
           <button class="btn-ghost" id="exportBtn">Save backup file</button>
           <button class="btn-ghost" id="importBtn">Open backup file</button>
@@ -351,28 +376,72 @@ html, body { min-height: 100%; }
   const lsGet = (k) => { try { const v = localStorage.getItem(LS + k); return v ? JSON.parse(v) : null; } catch { return null; } };
   const lsSet = (k, v) => { try { localStorage.setItem(LS + k, JSON.stringify(v)); return true; } catch { return false; } };
   const DAY = /^\d{4}-\d{2}-\d{2}$/;
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  let base = blank();   // the day as last loaded or written, used to tell what the user changed
 
   function setStatus(s, text) { const e = $("status"); e.dataset.s = s; e.textContent = text; }
 
   function normalize(data) {
     const s = blank();
+    s.deleted = {}; s.intentionAt = 0; s.examenAt = 0; s.updatedAt = "";
     if (data && typeof data === "object") {
       if (Array.isArray(data.tasks)) s.tasks = data.tasks.filter(t => t && typeof t.id === "string").map(t => ({
         id: t.id, text: String(t.text || ""), block: String(t.block || "any"), stream: String(t.stream || "self"),
-        top: !!t.top, done: !!t.done, carried: !!t.carried, at: Number(t.at) || 0 }));
+        top: !!t.top, done: !!t.done, carried: !!t.carried, at: Number(t.at) || 0, mod: Number(t.mod) || Number(t.at) || 0 }));
       s.intention = String(data.intention || ""); s.examen = String(data.examen || "");
+      s.intentionAt = Number(data.intentionAt) || 0; s.examenAt = Number(data.examenAt) || 0;
+      if (data.deleted && typeof data.deleted === "object") for (const [id, t] of Object.entries(data.deleted)) s.deleted[id] = Number(t) || 0;
       s.updatedAt = String(data.updatedAt || "");
     }
     return s;
   }
 
-  function load() { state = normalize(lsGet(keyOf(viewDate))); render(); }
+  // Merge two versions of one day: newest edit wins per task and per text box; deletions win over older edits.
+  function mergeDay(a, b) {
+    a = normalize(a); b = normalize(b);
+    const deleted = { ...a.deleted };
+    for (const [id, t] of Object.entries(b.deleted)) deleted[id] = Math.max(deleted[id] || 0, t);
+    const byId = new Map(a.tasks.map(t => [t.id, t]));
+    for (const t of b.tasks) { const m = byId.get(t.id); if (!m || t.mod > m.mod) byId.set(t.id, t); }
+    const tasks = [...byId.values()].filter(t => !(deleted[t.id] >= t.mod));
+    const cutoff = Date.now() - 90 * 86400000;
+    for (const id of Object.keys(deleted)) if (deleted[id] < cutoff) delete deleted[id];
+    const iB = b.intentionAt > a.intentionAt, eB = b.examenAt > a.examenAt;
+    return { tasks, deleted,
+      intention: iB ? b.intention : a.intention, intentionAt: Math.max(a.intentionAt, b.intentionAt),
+      examen: eB ? b.examen : a.examen, examenAt: Math.max(a.examenAt, b.examenAt),
+      updatedAt: a.updatedAt > b.updatedAt ? a.updatedAt : b.updatedAt };
+  }
 
+  function load() { state = normalize(lsGet(keyOf(viewDate))); base = clone(state); render(); }
+
+  const sameTask = (x, y) => x.text === y.text && x.block === y.block && x.stream === y.stream && x.top === y.top && x.done === y.done && x.carried === y.carried;
   function writeNow() {
-    const k = keyOf(viewDate);
-    state.updatedAt = new Date().toISOString();
-    const ok = lsSet(k, { ...state, date: k });
+    const k = keyOf(viewDate), now = Date.now();
+    const stored = normalize(lsGet(k));
+    const out = new Map(stored.tasks.map(t => [t.id, t]));
+    const baseMap = new Map(base.tasks.map(t => [t.id, t]));
+    for (const t of state.tasks) {
+      const b = baseMap.get(t.id);
+      if (!b || !sameTask(t, b)) { t.mod = now; out.set(t.id, { ...t }); }
+      else if (!out.has(t.id) && !(stored.deleted[t.id] >= t.mod)) out.set(t.id, { ...t });
+    }
+    const deleted = { ...stored.deleted };
+    const mine = new Set(state.tasks.map(t => t.id));
+    for (const b of base.tasks) if (!mine.has(b.id)) { deleted[b.id] = now; out.delete(b.id); }
+    const day = { tasks: [...out.values()], deleted,
+      intention: state.intention !== base.intention ? state.intention : stored.intention,
+      intentionAt: state.intention !== base.intention ? now : stored.intentionAt,
+      examen: state.examen !== base.examen ? state.examen : stored.examen,
+      examenAt: state.examen !== base.examen ? now : stored.examenAt,
+      updatedAt: new Date(now).toISOString(), date: k };
+    const ok = lsSet(k, day);
+    const fresh = normalize(day);
+    const extra = fresh.tasks.length !== state.tasks.length;
+    base = clone(fresh);
+    if (extra && !isTyping()) { state = clone(fresh); render(); }
     setStatus(ok ? "saved" : "local", ok ? "Saved on this device" : "Couldn't save. Storage may be full.");
+    if (ok && typeof scheduleSync === "function") scheduleSync();
   }
   function save(delay = 300) {
     clearTimeout(saveTimer);
@@ -381,7 +450,10 @@ html, body { min-height: 100%; }
   }
   function flush() { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; writeNow(); } }
   window.addEventListener("pagehide", flush);
-  document.addEventListener("visibilitychange", () => { if (document.hidden) flush(); else if (!isTyping()) load(); });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { flush(); if (typeof syncNow === "function") syncNow(); }
+    else { if (!isTyping()) load(); if (typeof syncNow === "function") syncNow(); }
+  });
 
   const isTyping = () => { const a = document.activeElement; return a && (a.tagName === "TEXTAREA" || (a.tagName === "INPUT" && a.type === "text")); };
 
@@ -404,9 +476,8 @@ html, body { min-height: 100%; }
     const nb = $("newBlock"), keep = nb.value;
     nb.replaceChildren(...blocks.map(b => el("option", { value: b.id, textContent: `${b.start} · ${b.label}` })), el("option", { value: "any", textContent: "Anytime" }));
     const firstWork = blocks.find(b => b.kind === "work") || blocks[0];
-    if (!$("newStream").options.length) $("newStream").replaceChildren(...STREAMS.map(s => el("option", { value: s.id, textContent: s.name })));
     nb.value = blocks.some(b => b.id === keep) ? keep : firstWork.id;
-    if (nb.value !== keep) { const bb = blocks.find(x => x.id === nb.value); if (bb && bb.stream) $("newStream").value = bb.stream; }
+    if (!$("newStream").options.length) $("newStream").replaceChildren(...STREAMS.map(s => el("option", { value: s.id, textContent: s.name })));
 
     // suggestions
     const sg = $("suggest"); sg.replaceChildren(el("span", { className: "lbl", textContent: "Suggestions:" }));
@@ -492,8 +563,8 @@ html, body { min-height: 100%; }
         el("div", { className: "dl-act" }, [
           el("span", { className: "left" + (left <= 7 ? " soon" : ""), textContent: txt }),
           el("button", { className: "mini", textContent: "×", title: "Remove deadline", ariaLabel: "Remove deadline", onclick: () => {
-            const i = DEADLINES.indexOf(dl); DEADLINES.splice(i, 1); saveDeadlines(); renderDeadlines();
-            toast("Deadline removed", () => { DEADLINES.splice(i, 0, dl); saveDeadlines(); renderDeadlines(); }); } }) ]) ]);
+            const i = DEADLINES.indexOf(dl); DEADLINES.splice(i, 1); DL_DELETED[dl.id] = Date.now(); saveDeadlines(); renderDeadlines();
+            toast("Deadline removed", () => { DEADLINES.splice(i, 0, dl); delete DL_DELETED[dl.id]; saveDeadlines(); renderDeadlines(); }); } }) ]) ]);
     }));
   }
 
@@ -543,7 +614,16 @@ html, body { min-height: 100%; }
   $("legend").replaceChildren(...STREAMS.map(s => { const d = el("span", { className: "dot" }); d.style.background = `var(${s.v})`; return el("span", {}, [d, s.name]); }));
 
   // ---------- deadlines ----------
-  function saveDeadlines() { lsSet("deadlines", DEADLINES); }
+  let DL_DELETED = {};
+  function saveDeadlines() { lsSet("deadlines", DEADLINES); lsSet("deadlinesDeleted", DL_DELETED); scheduleSync(); }
+  function mergeDeadlines(listA, delA, listB, delB) {
+    const del = { ...(delA || {}) };
+    for (const [id, t] of Object.entries(delB || {})) del[id] = Math.max(del[id] || 0, Number(t) || 0);
+    const byId = new Map();
+    for (const d of [...(listA || []), ...(listB || [])]) if (d && d.id && DAY.test(d.date) && !byId.has(d.id)) byId.set(d.id, d);
+    const list = [...byId.values()].filter(d => !del[d.id]).sort((a, b) => a.date.localeCompare(b.date));
+    return { list, del };
+  }
   $("dlForm").addEventListener("submit", (e) => {
     e.preventDefault();
     const name = $("dlName").value.trim(), date = $("dlDate").value;
@@ -554,7 +634,7 @@ html, body { min-height: 100%; }
     saveDeadlines(); $("dlName").value = ""; $("dlDate").value = ""; renderDeadlines();
   });
 
-  // ---------- backup: export / import ----------
+  // ---------- all data on this device ----------
   function allData() {
     const days = {};
     try {
@@ -563,8 +643,26 @@ html, body { min-height: 100%; }
         if (k && k.startsWith(LS) && DAY.test(k.slice(LS.length))) days[k.slice(LS.length)] = JSON.parse(localStorage.getItem(k));
       }
     } catch {}
-    return { app: "tomorrow-planner", version: 1, exportedAt: new Date().toISOString(), deadlines: DEADLINES, days };
+    return { app: "tomorrow-planner", version: 2, exportedAt: new Date().toISOString(), deadlines: DEADLINES, deadlinesDeleted: DL_DELETED, days };
   }
+  // Merge a bundle (backup file or sync copy) into this device. Returns the number of days touched.
+  function mergeBundle(data) {
+    let n = 0;
+    for (const [k, inc] of Object.entries(data.days || {})) {
+      if (!DAY.test(k)) continue;
+      const merged = mergeDay(lsGet(k), inc);
+      lsSet(k, { ...merged, date: k }); n++;
+    }
+    const m = mergeDeadlines(DEADLINES, DL_DELETED, data.deadlines, data.deadlinesDeleted);
+    DEADLINES = m.list; DL_DELETED = m.del;
+    lsSet("deadlines", DEADLINES); lsSet("deadlinesDeleted", DL_DELETED);
+    return n;
+  }
+  function reloadView() { if (isTyping()) { reloadPending = true; return; } load(); renderDeadlines(); }
+  let reloadPending = false;
+  document.addEventListener("focusout", () => setTimeout(() => { if (reloadPending && !isTyping() && !saveTimer) { reloadPending = false; load(); } }, 0));
+
+  // ---------- backup: export / import ----------
   $("exportBtn").addEventListener("click", () => {
     flush();
     const blob = new Blob([JSON.stringify(allData(), null, 1)], { type: "application/json" });
@@ -583,31 +681,105 @@ html, body { min-height: 100%; }
     try { data = JSON.parse(await f.text()); } catch { toast("That file isn't a planner backup."); return; }
     if (!data || data.app !== "tomorrow-planner" || typeof data.days !== "object") { toast("That file isn't a planner backup."); return; }
     flush();
-    let n = 0;
-    for (const [k, inc] of Object.entries(data.days)) {
-      if (!DAY.test(k)) continue;
-      const mine = normalize(lsGet(k)), theirs = normalize(inc);
-      const newer = theirs.updatedAt > mine.updatedAt;
-      const byId = new Map(mine.tasks.map(t => [t.id, t]));
-      for (const t of theirs.tasks) { if (!byId.has(t.id) || newer) byId.set(t.id, t); }
-      const pick = (a, b) => newer ? (b || a) : (a || b);
-      lsSet(k, { tasks: [...byId.values()], intention: pick(mine.intention, theirs.intention), examen: pick(mine.examen, theirs.examen),
-        updatedAt: newer ? theirs.updatedAt : mine.updatedAt, date: k });
-      n++;
-    }
-    if (Array.isArray(data.deadlines)) {
-      const ids = new Set(DEADLINES.map(d => d.id));
-      for (const d of data.deadlines) if (d && d.id && !ids.has(d.id) && DAY.test(d.date)) DEADLINES.push(d);
-      DEADLINES.sort((a, b) => a.date.localeCompare(b.date)); saveDeadlines();
-    }
-    load();
+    const n = mergeBundle(data);
+    load(); renderDeadlines(); scheduleSync();
     toast(`Merged ${n} day${n === 1 ? "" : "s"} from the backup`);
   });
 
+  // ---------- sync through a secret GitHub gist ----------
+  const GIST_FILE = "tomorrow-planner.json", GIST_DESC = "Tomorrow Planner sync";
+  let syncTimer = null, syncing = false, syncAgain = false;
+  const syncCfg = () => lsGet("sync") || {};
+  async function gh(path, opts = {}) {
+    const res = await fetch("https://api.github.com" + path, { ...opts, cache: "no-store", headers: {
+      Accept: "application/vnd.github+json", Authorization: "Bearer " + syncCfg().token, ...(opts.body ? { "Content-Type": "application/json" } : {}) } });
+    if (!res.ok) { const err = new Error("http " + res.status); err.status = res.status; throw err; }
+    return res.status === 204 ? null : res.json();
+  }
+  function scheduleSync() { if (!syncCfg().gist) return; clearTimeout(syncTimer); syncTimer = setTimeout(syncNow, 4000); }
+  async function syncNow() {
+    const cfg = syncCfg();
+    if (!cfg.token || !cfg.gist) return;
+    if (!navigator.onLine) { setSyncInfo("Offline. Will sync when you're back online."); return; }
+    if (syncing) { syncAgain = true; return; }
+    syncing = true; clearTimeout(syncTimer);
+    try {
+      flush();
+      setSyncInfo("Syncing…");
+      const g = await gh("/gists/" + cfg.gist);
+      const file = g.files && g.files[GIST_FILE];
+      let remote = { days: {} };
+      if (file) {
+        const text = file.truncated ? await (await fetch(file.raw_url, { cache: "no-store" })).text() : file.content;
+        try { remote = JSON.parse(text || "{}"); } catch { remote = { days: {} }; }
+      }
+      mergeBundle(remote);
+      const mine = allData();
+      const body = JSON.stringify({ ...mine, syncedAt: new Date().toISOString() });
+      const canon = (d) => JSON.stringify([Object.keys(d.days || {}).sort().map(k => [k, d.days[k]]), d.deadlines || [], d.deadlinesDeleted || {}]);
+      if (canon(mine) !== canon(remote)) {
+        await gh("/gists/" + cfg.gist, { method: "PATCH", body: JSON.stringify({ files: { [GIST_FILE]: { content: body } } }) });
+      }
+      lsSet("sync", { ...cfg, last: Date.now() });
+      reloadView();
+      setSyncInfo();
+    } catch (e) {
+      if (e.status === 401 || e.status === 403) setSyncInfo("GitHub refused the token. Connect again with a new token.", true);
+      else if (e.status === 404) setSyncInfo("The sync gist was not found. Disconnect and connect again.", true);
+      else setSyncInfo("Couldn't reach GitHub. Will try again later.");
+    } finally {
+      syncing = false;
+      if (syncAgain) { syncAgain = false; scheduleSync(); }
+    }
+  }
+  function setSyncInfo(msg, bad) {
+    const cfg = syncCfg(), on = !!cfg.gist;
+    $("syncOff").hidden = on; $("syncOn").hidden = !on;
+    if (!on) return;
+    const t = cfg.last ? new Date(cfg.last).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : null;
+    $("syncInfo").textContent = msg || (t ? `Synced at ${t}` : "Connected. Not synced yet.");
+    $("syncInfo").dataset.bad = bad ? "1" : "";
+  }
+  $("syncForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const token = $("syncToken").value.trim();
+    if (!token) { toast("Paste your GitHub token first."); return; }
+    lsSet("sync", { token });
+    $("syncConnect").disabled = true; $("syncConnect").textContent = "Connecting…";
+    try {
+      let gist = null;
+      for (let page = 1; page <= 5 && !gist; page++) {
+        const list = await gh(`/gists?per_page=100&page=${page}`);
+        gist = (list || []).find(x => x.description === GIST_DESC && x.files && x.files[GIST_FILE]);
+        if (!list || list.length < 100) break;
+      }
+      if (!gist) {
+        flush();
+        gist = await gh("/gists", { method: "POST", body: JSON.stringify({ description: GIST_DESC, public: false,
+          files: { [GIST_FILE]: { content: JSON.stringify({ ...allData(), syncedAt: new Date().toISOString() }) } } }) });
+      }
+      lsSet("sync", { token, gist: gist.id });
+      $("syncToken").value = "";
+      setSyncInfo("Connected. Syncing…");
+      await syncNow();
+      toast("Sync is on for this device");
+    } catch (err) {
+      lsSet("sync", {});
+      toast(err.status === 401 ? "GitHub didn't accept that token. Check you copied all of it." : "Couldn't connect to GitHub. Check your internet and try again.");
+      setSyncInfo();
+    } finally { $("syncConnect").disabled = false; $("syncConnect").textContent = "Connect"; }
+  });
+  $("syncBtn").addEventListener("click", () => syncNow());
+  $("syncOffBtn").addEventListener("click", () => { lsSet("sync", {}); setSyncInfo(); toast("Sync turned off on this device. Your plans stay here."); });
+  window.addEventListener("online", () => syncNow());
+
   // ---------- boot ----------
   { const d = lsGet("deadlines"); DEADLINES = Array.isArray(d) ? d.filter(x => x && DAY.test(x.date)) : []; }
+  { const d = lsGet("deadlinesDeleted"); DL_DELETED = d && typeof d === "object" ? d : {}; }
   load();
   setStatus("saved", "Saved on this device");
+  setSyncInfo();
+  syncNow();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 })();
 </script>
