@@ -124,6 +124,7 @@ h1 { font-family: var(--f-display); font-weight: 700; font-size: clamp(28px, 6vw
 .mini { border: 0; background: transparent; color: var(--muted); width: 28px; height: 28px; border-radius: 6px; font-size: 15px; }
 .mini:hover { background: var(--line); color: var(--ink); }
 .mini.on { color: var(--star); }
+a.mini { display: inline-grid; place-items: center; text-decoration: none; }
 .carried { font-family: var(--f-mono); font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
 @media (max-width: 520px) {
   .blk { grid-template-columns: minmax(0, 1fr); gap: 2px; }
@@ -227,6 +228,12 @@ html, body { min-height: 100%; }
           <input type="date" id="dlDate" aria-label="Closing date">
           <button type="submit" class="btn-primary">Add</button>
         </form>
+      </section>
+      <section class="card">
+        <h2>Reminders</h2>
+        <p class="hint" id="alertsInfo">Sound a chime 10 minutes before each block while the planner is open.</p>
+        <button class="btn-ghost" id="alertsBtn" aria-pressed="false">Turn on chime</button>
+        <p class="hint" style="margin:10px 0 0">Tap the bell on any task to add it to Google Calendar with a reminder.</p>
       </section>
       <section class="card">
         <h2>Carry forward</h2>
@@ -476,8 +483,9 @@ html, body { min-height: 100%; }
     const nb = $("newBlock"), keep = nb.value;
     nb.replaceChildren(...blocks.map(b => el("option", { value: b.id, textContent: `${b.start} · ${b.label}` })), el("option", { value: "any", textContent: "Anytime" }));
     const firstWork = blocks.find(b => b.kind === "work") || blocks[0];
-    nb.value = blocks.some(b => b.id === keep) ? keep : firstWork.id;
     if (!$("newStream").options.length) $("newStream").replaceChildren(...STREAMS.map(s => el("option", { value: s.id, textContent: s.name })));
+    nb.value = blocks.some(b => b.id === keep) ? keep : firstWork.id;
+    if (nb.value !== keep) { const bb = blocks.find(x => x.id === nb.value); if (bb && bb.stream) $("newStream").value = bb.stream; }
 
     // suggestions
     const sg = $("suggest"); sg.replaceChildren(el("span", { className: "lbl", textContent: "Suggestions:" }));
@@ -546,7 +554,9 @@ html, body { min-height: 100%; }
       state.tasks.splice(i, 1); render(); save(0);
       toast("Task deleted", () => { state.tasks.splice(Math.min(i, state.tasks.length), 0, x); render(); save(0); });
     });
-    const meta = el("div", { className: "meta" }, [dot, mv, star, del]);
+    const bell = el("a", { className: "mini", href: calLink(x), target: "_blank", rel: "noopener", title: "Add a Google Calendar reminder", ariaLabel: "Add calendar reminder" });
+    bell.innerHTML = BELL;
+    const meta = el("div", { className: "meta" }, [dot, mv, bell, star, del]);
     if (x.carried) meta.prepend(el("span", { className: "carried", textContent: "carried" }));
     return el("div", { className: "task" + (x.done ? " done" : "") }, [cb, txt, meta]);
   }
@@ -570,10 +580,10 @@ html, body { min-height: 100%; }
 
   // ---------- toast ----------
   let toastTimer;
-  function toast(msg, undo) {
+  function toast(msg, undo, ms = 5000) {
     $("toastMsg").textContent = msg;
     const act = $("toastAct"); act.hidden = !undo; act.onclick = () => { $("toast").hidden = true; undo && undo(); };
-    $("toast").hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $("toast").hidden = true, 5000);
+    $("toast").hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $("toast").hidden = true, ms);
   }
 
   // ---------- events ----------
@@ -609,6 +619,95 @@ html, body { min-height: 100%; }
     state.tasks.push(...moved); render(); save(0);
     toast(`Brought ${moved.length} task${moved.length > 1 ? "s" : ""} forward`);
   });
+
+  // ---------- reminders: Google Calendar link + in-app chime ----------
+  const toMin = (hm) => { const [h, m] = hm.split(":").map(Number); return h * 60 + m; };
+  const atMin = (d, min) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), Math.floor(min / 60), min % 60);
+  const gcalStamp = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+  function calLink(x) {
+    const b = blocksFor(viewDate).find(y => y.id === x.block);
+    const p = new URLSearchParams({ action: "TEMPLATE", text: x.text || "Task", details: `${streamOf(x.stream).name} · from Tomorrow Planner` });
+    if (b) {
+      p.set("dates", `${gcalStamp(atMin(viewDate, toMin(b.start)))}/${gcalStamp(atMin(viewDate, toMin(b.end)))}`);
+      try { p.set("ctz", Intl.DateTimeFormat().resolvedOptions().timeZone); } catch {}
+    } else {
+      const d0 = keyOf(viewDate).replace(/-/g, ""), d1 = keyOf(addDays(viewDate, 1)).replace(/-/g, "");
+      p.set("dates", `${d0}/${d1}`);
+    }
+    return "https://calendar.google.com/calendar/render?" + p.toString();
+  }
+  const BELL = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z"/></svg>';
+
+  // In-app chime: 10 minutes before each block of today, while the planner is open.
+  const ALERT_LEAD = 10;
+  const alertable = (b) => b.kind === "work" || b.kind === "class" || b.kind === "prayer" || b.id === "a1200" || b.id === "a1630";
+  let audioCtx = null;
+  function chime() {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      const t0 = audioCtx.currentTime;
+      [[0, 880], [0.35, 1320], [0.7, 880], [1.05, 1320]].forEach(([dt, f]) => {
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.type = "sine"; o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, t0 + dt);
+        g.gain.exponentialRampToValueAtTime(0.35, t0 + dt + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.9);
+        o.connect(g).connect(audioCtx.destination); o.start(t0 + dt); o.stop(t0 + dt + 1);
+      });
+    } catch {}
+  }
+  const alertsOn = () => { try { return localStorage.getItem("planner:alerts") === "on"; } catch { return false; } };
+  const setAlertsOn = (on) => { try { localStorage.setItem("planner:alerts", on ? "on" : "off"); } catch {} };
+  const fired = new Set();
+  function renderAlertsCard() {
+    const on = alertsOn();
+    $("alertsBtn").textContent = on ? "Turn off chime" : "Turn on chime";
+    $("alertsBtn").setAttribute("aria-pressed", String(on));
+    $("alertsInfo").textContent = on
+      ? `On. A chime sounds ${ALERT_LEAD} minutes before each block today while the planner is open.`
+      : `Sound a chime ${ALERT_LEAD} minutes before each block while the planner is open. Calendar reminders cover the times it is closed.`;
+  }
+  async function notify(title, body) {
+    try {
+      if (!("Notification" in window) || Notification.permission !== "granted") return;
+      const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
+      if (reg && reg.showNotification) reg.showNotification(title, { body, icon: "icons/icon-192.png", tag: title });
+      else new Notification(title, { body });
+    } catch {}
+  }
+  function checkAlerts() {
+    if (!alertsOn()) return;
+    const now = new Date(), t = today();
+    for (const b of blocksFor(t)) {
+      if (!alertable(b)) continue;
+      const start = atMin(t, toMin(b.start)), at = new Date(start.getTime() - ALERT_LEAD * 60000);
+      const key = keyOf(t) + b.id;
+      if (now >= at && now < start && !fired.has(key)) {
+        fired.add(key);
+        const items = keyOf(viewDate) === keyOf(t) ? state.tasks.filter(x => x.block === b.id && !x.done).map(x => x.text) : [];
+        const title = `${b.label} at ${b.start}`;
+        const body = items.length ? items.slice(0, 3).join(" · ") : `Starts in ${ALERT_LEAD} minutes`;
+        chime();
+        toast(`🔔 ${title}${items.length ? ": " + body : ""}`, null, 20000);
+        notify(title, body);
+      } else if (now >= start) fired.add(key);
+    }
+  }
+  $("alertsBtn").addEventListener("click", async () => {
+    const on = !alertsOn(); setAlertsOn(on); renderAlertsCard();
+    if (on) {
+      chime();
+      try { if ("Notification" in window && Notification.permission === "default") await Notification.requestPermission(); } catch {}
+      const t = today(), now = new Date();
+      for (const b of blocksFor(t)) if (atMin(t, toMin(b.start)) <= now) fired.add(keyOf(t) + b.id);
+      toast("Chime on. You just heard what it sounds like.");
+    }
+  });
+  renderAlertsCard();
+  { const t = today(), now = new Date(); for (const b of blocksFor(t)) if (atMin(t, toMin(b.start)) <= now) fired.add(keyOf(t) + b.id); }
+  setInterval(checkAlerts, 20000);
+  checkAlerts();
 
   // legend
   $("legend").replaceChildren(...STREAMS.map(s => { const d = el("span", { className: "dot" }); d.style.background = `var(${s.v})`; return el("span", {}, [d, s.name]); }));
