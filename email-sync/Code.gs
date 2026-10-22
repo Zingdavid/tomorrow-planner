@@ -47,7 +47,10 @@ function syncEmailToPlanner() {
     if (!threads.length) return;
     const now = Date.now(), day = targetDay(new Date());
     const tasks = threads.map(t => {
-      const m = t.getMessages()[0];
+      // Use the latest message from someone else, so a thread you started still shows who is waiting on you.
+      const msgs = t.getMessages();
+      const others = msgs.filter(x => x.getFrom().toLowerCase().indexOf(me.toLowerCase()) < 0);
+      const m = (others.length ? others : msgs)[(others.length ? others : msgs).length - 1];
       const subject = (t.getFirstMessageSubject() || "(no subject)").replace(/^(re|fwd?):\s*/i, "").trim();
       const from = m.getFrom().replace(/<.*>/, "").replace(/"/g, "").trim() || m.getFrom();
       return {
