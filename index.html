@@ -125,6 +125,7 @@ h1 { font-family: var(--f-display); font-weight: 700; font-size: clamp(28px, 6vw
 .mini:hover { background: var(--line); color: var(--ink); }
 .mini.on { color: var(--star); }
 a.mini { display: inline-grid; place-items: center; text-decoration: none; }
+.carried.mail { text-decoration: none; color: var(--ink); }
 .carried { font-family: var(--f-mono); font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
 @media (max-width: 520px) {
   .blk { grid-template-columns: minmax(0, 1fr); gap: 2px; }
@@ -383,6 +384,7 @@ html, body { min-height: 100%; }
   const lsGet = (k) => { try { const v = localStorage.getItem(LS + k); return v ? JSON.parse(v) : null; } catch { return null; } };
   const lsSet = (k, v) => { try { localStorage.setItem(LS + k, JSON.stringify(v)); return true; } catch { return false; } };
   const DAY = /^\d{4}-\d{2}-\d{2}$/;
+  const MAIL = /^https:\/\/mail\.google\.com\//;   // tasks added from email by the Gmail script keep a link back
   const clone = (o) => JSON.parse(JSON.stringify(o));
   let base = blank();   // the day as last loaded or written, used to tell what the user changed
 
@@ -394,7 +396,8 @@ html, body { min-height: 100%; }
     if (data && typeof data === "object") {
       if (Array.isArray(data.tasks)) s.tasks = data.tasks.filter(t => t && typeof t.id === "string").map(t => ({
         id: t.id, text: String(t.text || ""), block: String(t.block || "any"), stream: String(t.stream || "self"),
-        top: !!t.top, done: !!t.done, carried: !!t.carried, at: Number(t.at) || 0, mod: Number(t.mod) || Number(t.at) || 0 }));
+        top: !!t.top, done: !!t.done, carried: !!t.carried, at: Number(t.at) || 0, mod: Number(t.mod) || Number(t.at) || 0,
+        ...(MAIL.test(String(t.url || "")) ? { url: String(t.url), src: String(t.src || "email").slice(0, 24) } : {}) }));
       s.intention = String(data.intention || ""); s.examen = String(data.examen || "");
       s.intentionAt = Number(data.intentionAt) || 0; s.examenAt = Number(data.examenAt) || 0;
       if (data.deleted && typeof data.deleted === "object") for (const [id, t] of Object.entries(data.deleted)) s.deleted[id] = Number(t) || 0;
@@ -558,6 +561,8 @@ html, body { min-height: 100%; }
     bell.innerHTML = BELL;
     const meta = el("div", { className: "meta" }, [dot, mv, bell, star, del]);
     if (x.carried) meta.prepend(el("span", { className: "carried", textContent: "carried" }));
+    if (x.url) meta.prepend(el("a", { className: "carried mail", href: x.url, target: "_blank", rel: "noopener",
+      textContent: "✉ " + x.src, title: "Open the email (" + x.src + ")" }));
     return el("div", { className: "task" + (x.done ? " done" : "") }, [cb, txt, meta]);
   }
 
