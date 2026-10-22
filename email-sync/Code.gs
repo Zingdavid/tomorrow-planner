@@ -24,6 +24,8 @@ const QUERY = "(is:starred OR label:planner) -label:" + SYNCED + " newer_than:30
 const TZ = "Africa/Blantyre";
 
 function setup() {
+  // When installed from the command line, a temporary Config.gs carries the settings; copy them into Script properties.
+  if (typeof PLANNER_CONFIG !== "undefined") PropertiesService.getScriptProperties().setProperties(PLANNER_CONFIG);
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger("syncEmailToPlanner").timeBased().everyMinutes(15).create();
   if (!GmailApp.getUserLabelByName(SYNCED)) GmailApp.createLabel(SYNCED);
@@ -98,7 +100,7 @@ function targetDay(d) {
 
 function guessStream(text) {
   const t = text.toLowerCase();
-  if (/\b(phd|application|scholarship|vacanc|position|studentship|admission|interview|fellowship)\b/.test(t)) return "opp";
+  if (/\b(phd|apply|applications?|scholarships?|vacanc\w*|positions?|studentships?|admissions?|interviews?|fellowships?|jobs?|doctoral|doctorate|degrees?|postdoc\w*|call for)\b/.test(t)) return "opp";
   if (/\b(manuscript|journal|paper|reviewer|revision|submission|preprint|article)\b/.test(t)) return "paper";
   if (/\b(class|lecture|students?|exam|test|marks?|course|eco ?\d{3}|tutorial|semester)\b/.test(t)) return "teach";
   return "cons";
